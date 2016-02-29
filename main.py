@@ -2,6 +2,7 @@
 from config import *
 
 import json
+from string import split
 
 from httpHelpers import *
 
@@ -44,18 +45,77 @@ def get_cards():
 	index = 0 
 	for card_info in card_infos:
 		card = {}
-		card["card_link"] = card_info.find("a",attrs = {"data-pageobject" : "mycards-card-cardlink"})["href"]
+		card["links"] = {}
+		card["links"]["card"] = card_info.find("a",attrs = {"data-pageobject" : "mycards-card-cardlink"})["href"]
+		card["pi_ref"] = split(card["links"]["card"],"=")[1]
 		card["card_type"] = card_info.find(attrs = {"data-pageobject" : "mycards-card-cardtype"}).string
-		card["card_number"] = card_info.find(attrs = {"data-pageobject" : "mycards-card-cardnumber"}).string
+		card["card_last_4"] = card_info.find(attrs = {"data-pageobject" : "mycards-card-cardnumber"}).string[13:17]
 		card["card_status"] = card_info.find(attrs = {"data-pageobject" : "mycards-card-status"}).stripped_strings.next()
 		cards["card_list"].append(card)
-		cards["card_index"][card["card_number"]] = index
+		cards["card_index"][card["card_last_4"]] = index
 		index = index + 1
 	return cards
+
+def get_card_details(card):
+	url = "/Card/view?pi=" + card["pi_ref"]
+	response = open_tfl_url(url)
+
+def get_links(card):
+	url = "Statements/ShowStatement?pi=" + card["pi_ref"]
+	response = open_tfl_url(url)
+	statement_soup = getSoupFromHtml(response.read())
+
+	csv_container = statement_soup.find(id = 'travelstatement-csv-container')
+	card["links"]["statement_csv"] = csv_container.a["href"]
+
+	pdf_container = statement_soup.find(id = 'travelstatement-pdf-container')
+	card["links"]["statement_pdf"] = pdf_container.a["href"]
+
+def download_statement(link, month = None, year = None, num_months = 1):
+	statement = {}
+	statement["end_year"] = year
+	statement["end_month"] = month
+	statement["num_months"] = num_months
+	statement["entries"] = []
+	end_months_since_0bc = 12 * year + month
+	current_months_since_0bc = end_months_since_0bc - num_months
+	while current_months_since_0bc <= end_months_since_0bc:
+		url = link + "&sp="+ str(((current_months_since_0bc - 1) % 12) + 1) + "%7c" + str((current_months_since_0bc - 1) / 12)
+		print (url)
+		response = open_tfl_url(url)
+		first_line = response.readline()
+		# print(first_line[0], first_line)
+		if first_line[0] == "D":
+			for line in response.readlines():
+				parts = split(line, ",")
+				date_parts = split(parts[0], "/")
+				entry = {
+					"date": parts[0],
+					"day": date_parts[0],
+					"month": date_parts[1],
+					"year": date_parts[2],
+					"amount": parts[1].strip()
+				}
+				statement["entries"].append(entry)
+		else:
+			print ("problem getting CSV")
+		current_months_since_0bc = current_months_since_0bc + 1
+	return statement
 
 login()
 cards = get_cards()
 
-print (cards)
+for card in cards["card_list"]:
+	get_links(card)
+	card["statement"] = download_statement(card["links"]["statement_csv"], 2, 2016, 24)
+	print (card)
+	for entry in card["statement"]["entries"]:
+		print (entry["date"], entry["amount"])
 
 
+
+#__RequestVerificationToken:Xir254s6_d5KOzWjyZJxhyxk0Bu22_NsPTqYwcXRdeDCJAj4qF1Bq_CJ_yVBgssdGHb4JCJPF30Uj0HGkEfj_Om21eADDowgEFI64KqqAKI1
+#PaymentCardId:PItZFRvMu28Tffqy6ivCxTXFHks-
+#SelectedStatementType:Payments
+#SelectedStatementPeriod:2|2016
+# "/Statements/DownloadCsv?pi=PItZFRvMu28Tffqy6ivCxTXFHks-&amp;ti=xbaSUEjZLMCZFtmBeyTBSJTfW~U-&amp;st=Payments&amp;sp=2%7C2016&amp;doc=Payments"
