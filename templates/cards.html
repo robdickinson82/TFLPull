@@ -1,0 +1,7 @@
+<!doctype html>
+<title>Hello from Blah Flask</title>
+<table>
+	{% for card in cards.card_list %}
+     <td><a href="/card/{{ card.pi_ref }}">LINK</a></td>
+	{% endfor %}
+</table>
